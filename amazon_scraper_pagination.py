@@ -6,424 +6,362 @@ import re
 from datetime import datetime
 import random
 
-class ProfessionalAmazonScraper:
+class DarazScraper:
     def __init__(self):
-        self.base_url = "https://www.amazon.com"
+        self.base_url = "https://www.daraz.com.np"
         
-        # ✅ 2024 AMAZON SELECTORS (UPDATED TODAY)
-        self.selectors_2024 = {
-            # Product containers - 2024 NEW
+        # ✅ DARAZ SELECTORS (Based on provided HTML) - DO NOT CHANGE
+        self.selectors = {
+            # Product containers
             'product_container': [
-                'div[data-component-type="s-search-result"]',
-                '.s-result-item[data-component-type="s-search-result"]',
-                '.puisg-col-inner',  # NEW 2024
-                '[data-csa-c-type="item"]'
+                'div.Bm3ON[data-qa-locator="product-item"]',
+                'div[data-qa-locator="product-item"]',
+                'div.Bm3ON'
             ],
             
-            # Title - 2024 NEW
+            # Title 
             'title': [
-                'h2 a span',  # Standard
-                '.a-size-medium.a-color-base',  # Brand name
-                'span.a-size-base-plus.a-color-base.a-text-normal',  # Full title
-                'a.s-line-clamp-2 span',  # 2024 NEW
-                'a.s-line-clamp-3 span'   # 2024 NEW
+                'div.RfADt a',
+                'a[title]'
             ],
             
-            # Price - 2024
+            # Price 
             'price': [
-                'span.a-price-whole',
-                'span.a-price-fraction',
-                'span.a-offscreen',
-                '.a-price .a-text-price'
+                'div.aBrP0 span.ooOxS',
+                'span.ooOxS'
             ],
             
-            # Rating - 2024
-            'rating': [
-                'span.a-icon-alt',
-                'i.a-icon-star-small span',
-                '[aria-label*="out of 5 stars"]'
+            # Number sold 
+            'sold_count': [
+                'span._1cEkb span',
+                'span._1cEkb'
             ],
             
-            # Reviews - 2024
+            # Rating stars 
+            'rating_container': [
+                'div.mdmmT._32vUv',
+                'div.mdmmT'
+            ],
+            
+            # Review count 
             'review_count': [
-                'span.a-size-base.s-underline-text',
-                'span[aria-label*="stars"] + span',
-                'a[href*="customerReviews"] span'
+                'span.qzqFw'
             ],
             
-            # Sales rank/Best seller - 2024
-            'bestseller': [
-                'span.a-badge-text',
-                '.s-best-seller-badge',
-                '[aria-label*="Best Seller"]'
+            # Province/Location -
+            'province': [
+                'span.oa6ri'
             ],
             
-            # "Bought in past month" - 2024
-            'sales_volume': [
-                'span.a-size-small.a-color-secondary',  # Usually contains "XK+ bought"
-                'div.a-row.a-size-small span',  # New pattern
-                '[class*="bought"]'  # Any element with "bought" in class
+            # Product URL - <a> tag with href
+            'product_link': [
+                'div.RfADt a[href]',
+                'a[href*=".html"]'
             ]
         }
     
-    def extract_top_10_products(self, html, search_term):
-        """Extract EXACTLY top 10 products in order"""
+    def extract_top_products(self, html, search_term, max_products=40):
+        """Extract top N products in order from Daraz search results"""
         soup = BeautifulSoup(html, 'html.parser')
         products = []
         
-        # ✅ METHOD 1: Find ALL product containers
+        # Find ALL product containers
         all_containers = []
         
-        for selector in self.selectors_2024['product_container']:
+        for selector in self.selectors['product_container']:
             containers = soup.select(selector)
             if containers:
-                print(f"   Found {len(containers)} with selector: {selector}")
-                all_containers.extend(containers[:20])  # Get first 20
+                print(f"   Found {len(containers)} products with selector: {selector}")
+                all_containers.extend(containers)
+                break  # Use the first selector that works
         
         # Remove duplicates while preserving order
         seen = set()
         unique_containers = []
         for container in all_containers:
-            if container not in seen:
-                seen.add(container)
+            container_id = container.get('data-item-id', '')
+            if container_id and container_id not in seen:
+                seen.add(container_id)
                 unique_containers.append(container)
         
         print(f"   Unique product containers: {len(unique_containers)}")
         
-        # ✅ Take EXACTLY top 11 (as they appear on Amazon)
-        for i, container in enumerate(unique_containers[:11]):
+        # Extract top N products
+        for i, container in enumerate(unique_containers[:max_products]):
             try:
-                product_data = self.extract_single_product_2024(container)
+                product_data = self.extract_single_product(container)
                 if product_data:
-                    product_data['search_rank'] = i + 1  # 1, 2, 3... 10
+                    product_data['search_rank'] = i + 1
                     product_data['search_term'] = search_term
                     products.append(product_data)
                     
                     print(f"   #{i+1}: {product_data['title'][:60]}...")
-                    print(f"      Price: {product_data['price']} | Reviews: {product_data['review_count']}")
+                    print(f"      Price: {product_data['price']} | Rating: {product_data['rating']} | Sold: {product_data['sold_count']}")
             except Exception as e:
                 print(f"   ⚠️ Error on product {i+1}: {e}")
                 continue
         
         return products
     
-    def extract_single_product_2024(self, container):
-        """Extract data with 2024 selectors"""
+    def extract_single_product(self, container):
+        """Extract data from a single product container"""
         data = {}
         
-        # 1. ASIN (Amazon ID)
-        data['asin'] = container.get('data-asin', '')
-        if not data['asin']:
-            # Try to find ASIN in link
-            link = container.find('a', href=True)
-            if link:
-                href = link['href']
-                asin_match = re.search(r'/dp/([A-Z0-9]{10})', href)
-                if asin_match:
-                    data['asin'] = asin_match.group(1)
+        # 1. ITEM ID (Daraz's product identifier)
+        data['item_id'] = container.get('data-item-id', '')
         
-        # 2. TITLE (2024 selector from your HTML)
+        # 2. TITLE
         title = None
-        
-        # Try your EXACT HTML pattern first
-        title_elem = container.select_one('a.a-link-normal.s-line-clamp-2 span') or \
-                    container.select_one('a.a-link-normal.s-line-clamp-3 span') or \
-                    container.select_one('h2.a-size-mini a span') or \
-                    container.select_one('h2 span')
+        title_elem = container.select_one('div.RfADt a')
         
         if title_elem:
-            title = title_elem.text.strip()
-        else:
-            # Fallback: get all text from container and extract first meaningful line
-            all_text = container.get_text('\n', strip=True)
-            lines = [line for line in all_text.split('\n') if line and len(line) > 10]
-            if lines:
-                title = lines[0]
+            # Try to get from title attribute first (most complete)
+            title = title_elem.get('title', '').strip()
+            
+            # If no title attribute, get text content
+            if not title:
+                title = title_elem.get_text(strip=True)
         
-        if not title:
+        if not title or len(title) < 5:
             return None
         
         data['title'] = title
         
         # 3. PRICE
         price = "N/A"
-        # Look for price whole + fraction
-        price_whole = container.select_one('span.a-price-whole')
-        price_fraction = container.select_one('span.a-price-fraction')
+        price_elem = container.select_one('div.aBrP0 span.ooOxS')
         
-        if price_whole:
-            price = f"${price_whole.text.strip()}"
-            if price_fraction:
-                price += price_fraction.text.strip()
-        else:
-            # Try other price selectors
-            price_elem = container.select_one('span.a-offscreen')
-            if price_elem:
-                price = price_elem.text.strip()
+        if price_elem:
+            price = price_elem.get_text(strip=True)
+            # Clean up price: "Rs. 59,990" -> "Rs. 59,990"
+            price = price.strip()
         
         data['price'] = price
         
-        # 4. RATING (out of 5)
-        rating_elem = container.select_one('span.a-icon-alt')
-        if rating_elem:
-            rating_text = rating_elem.text.strip()
-            # Extract "4.5" from "4.5 out of 5 stars"
-            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-            data['rating'] = rating_match.group(1) if rating_match else "N/A"
-        else:
-            data['rating'] = "N/A"
+        # 4. NUMBER SOLD
+        sold_count = "0"
+        sold_elem = container.select_one('span._1cEkb span')
         
-        # 5. REVIEW COUNT
-        review_elem = container.select_one('span.a-size-base.s-underline-text')
+        if sold_elem:
+            sold_text = sold_elem.get_text(strip=True)
+            # Extract number from "55 sold" or "128 sold"
+            sold_match = re.search(r'(\d+)\s*sold', sold_text, re.IGNORECASE)
+            if sold_match:
+                sold_count = sold_match.group(1)
+        
+        data['sold_count'] = sold_count
+        
+        # 5. RATING (count filled stars)
+        rating = "N/A"
+        rating_container = container.select_one('div.mdmmT._32vUv') or container.select_one('div.mdmmT')
+        
+        if rating_container:
+            # Count filled stars (class contains 'Dy1nx') vs half/empty stars
+            filled_stars = len(rating_container.select('i._9-ogB.Dy1nx'))
+            half_stars = len(rating_container.select('i._9-ogB.JhD\\+v')) 
+            
+            # Calculate rating
+            rating_value = filled_stars + (0.5 if half_stars > 0 else 0)
+            rating = str(rating_value) if rating_value > 0 else "N/A"
+        
+        data['rating'] = rating
+        
+        # 6. REVIEW COUNT (number in parentheses)
+        review_count = "0"
+        review_elem = container.select_one('span.qzqFw')
+        
         if review_elem:
-            review_text = review_elem.text.strip()
-            # Extract numbers: "1,234" -> "1234"
-            review_match = re.search(r'([\d,]+)', review_text)
+            review_text = review_elem.get_text(strip=True)
+            # Extract number from "(18)" or "(35)"
+            review_match = re.search(r'\((\d+)\)', review_text)
             if review_match:
-                data['review_count'] = review_match.group(1).replace(',', '')
-            else:
-                data['review_count'] = "0"
-        else:
-            data['review_count'] = "0"
+                review_count = review_match.group(1)
         
-        # 6. BEST SELLER
-        bestseller = container.select_one('span.a-badge-text') or \
-                    container.select_one('.s-best-seller-badge')
-        data['bestseller'] = "Yes" if bestseller else "No"
+        data['review_count'] = review_count
         
-        # 7. SALES VOLUME ("XK+ bought in past month")
-        sales_text = ""
-        # Look for any element with "bought" and "month"
-        for elem in container.find_all(['span', 'div', 'a']):
-            text = elem.get_text(strip=True)
-            if 'bought' in text.lower() and 'month' in text.lower():
-                sales_text = text
-                break
+        # 7. PROVINCE/LOCATION
+        province = "N/A"
+        province_elem = container.select_one('span.oa6ri')
         
-        data['sales_volume'] = sales_text
+        if province_elem:
+            # Try title attribute first, then text content
+            province = province_elem.get('title', '').strip()
+            if not province:
+                province = province_elem.get_text(strip=True)
+        
+        data['province'] = province
         
         # 8. PRODUCT URL
-        if data['asin']:
-            data['product_url'] = f"{self.base_url}/dp/{data['asin']}"
-        else:
-            # Try to find product link
-            link_elem = container.select_one('a[href*="/dp/"]')
-            if link_elem and link_elem.get('href'):
-                href = link_elem['href']
-                if href.startswith('/'):
-                    data['product_url'] = self.base_url + href
-                elif href.startswith('http'):
-                    data['product_url'] = href
-                else:
-                    data['product_url'] = self.base_url + '/' + href
+        product_url = ""
+        link_elem = container.select_one('div.RfADt a[href]')
+        
+        if link_elem and link_elem.get('href'):
+            href = link_elem['href']
+            
+            # Handle relative URLs
+            if href.startswith('//'):
+                product_url = 'https:' + href
+            elif href.startswith('/'):
+                product_url = self.base_url + href
+            elif href.startswith('http'):
+                product_url = href
             else:
-                data['product_url'] = ""
+                product_url = self.base_url + '/' + href
+        
+        data['product_url'] = product_url
         
         # 9. TIMESTAMP
         data['scraped_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         return data
     
-    def scrape_with_stealth(self, search_query, max_pages=1, use_tor_proxy=False, fast_mode=False):
-        """Professional scraping with anti-detection - FIXED ASYNC"""
-        print(f"\n🎯 PROFESSIONAL SCRAPE: {search_query}")
+    def filter_products(self, products, min_sold=1, min_rating=1.0):
+        """
+        Filter products based on sold count and rating
+        
+        Args:
+            products: List of product dictionaries
+            min_sold: Minimum number of items sold (default: >1 means >= 2)
+            min_rating: Minimum rating value (default: >1 means >= 1.5)
+        
+        Returns:
+            Filtered list of products
+        """
+        filtered = []
+        
+        for product in products:
+            try:
+                # Get sold count
+                sold_count = int(product.get('sold_count', '0'))
+                
+                # Get rating
+                rating_str = product.get('rating', 'N/A')
+                if rating_str == 'N/A':
+                    rating = 0
+                else:
+                    rating = float(rating_str)
+                
+                # Filter: sold_count > 1 AND rating > 1
+                if sold_count > min_sold and rating > min_rating:
+                    filtered.append(product)
+                    
+            except (ValueError, TypeError):
+                # Skip products with invalid data
+                continue
+        
+        return filtered
+    
+    def scrape_with_stealth(self, search_query, max_products=40, fast_mode=True):
+        """Scrape Daraz with stealth settings"""
+        print(f"\n🎯 DARAZ SCRAPE: {search_query}")
         print("="*60)
         
+        # Daraz Nepal search URL
         encoded_query = search_query.replace(' ', '+')
-        search_url = f"https://www.amazon.com/s?k={encoded_query}&s=review-rank"
+        search_url = f"https://www.daraz.com.np/catalog/?q={encoded_query}"
         
         all_products = []
         
         try:
             with sync_playwright() as p:
-                # ✅ STEP 1: Launch with MAXIMUM stealth
+                # Launch with stealth settings
                 launch_args = [
                     '--disable-blink-features=AutomationControlled',
                     '--disable-features=IsolateOrigins,site-per-process',
-                    '--disable-web-security',
-                    '--disable-features=BlockInsecurePrivateNetworkRequests',
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu',
                 ]
                 
-                # Add Tor proxy if enabled
-                if use_tor_proxy:
-                    print("   🔐 Using Tor Browser SOCKS proxy (127.0.0.1:9150)")
-                    launch_args.append('--proxy-server=socks5://127.0.0.1:9150')
-                
                 browser = p.chromium.launch(
-                    headless=False,  # Set to True after testing
+                    headless=False, 
                     args=launch_args
                 )
                 
-                # ✅ STEP 2: Create context with REAL user profile
+                # Create context with realistic settings
                 context = browser.new_context(
                     viewport={'width': 1920, 'height': 1080},
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     locale='en-US',
-                    timezone_id='America/New_York',
-                    geolocation={'latitude': 40.7128, 'longitude': -74.0060},  # NYC
-                    permissions=['geolocation'],
+                    timezone_id='Asia/Kathmandu', 
                     color_scheme='light',
-                    device_scale_factor=1,
-                    has_touch=False,
-                    is_mobile=False,
-                    java_script_enabled=True,
-                    accept_downloads=True,
-                    screen={'width': 1920, 'height': 1080},
                 )
                 
                 page = context.new_page()
                 
-                # ✅ STEP 3: ADD STEALTH SCRIPTS
+                # Add stealth scripts
                 page.add_init_script("""
-                    // Overwrite the navigator properties
                     Object.defineProperty(navigator, 'webdriver', {
                         get: () => undefined
                     });
                     
-                    // Overwrite the plugins
                     Object.defineProperty(navigator, 'plugins', {
                         get: () => [1, 2, 3, 4, 5]
                     });
                     
-                    // Overwrite the languages
                     Object.defineProperty(navigator, 'languages', {
                         get: () => ['en-US', 'en']
                     });
                     
-                    // Overwrite the chrome object
                     window.chrome = {
                         runtime: {},
                         loadTimes: function() {},
                         csi: function() {},
                         app: {}
                     };
-                    
-                    // Add missing properties
-                    const originalQuery = window.navigator.permissions.query;
-                    window.navigator.permissions.query = (parameters) => (
-                        parameters.name === 'notifications' ?
-                            Promise.resolve({ state: Notification.permission }) :
-                            originalQuery(parameters)
-                    );
                 """)
                 
-                # ✅ STEP 4: NAVIGATE - Fast mode or human-like mode
+                # Navigate to search results
                 print(f"   Loading: {search_query}")
                 
-                # Increased timeout and changed wait condition for Tor compatibility
-                timeout_ms = 180000 if use_tor_proxy else 90000  # 3 min for Tor, 1.5 min normal
-                # Use 'domcontentloaded' - more reliable than 'networkidle' for Amazon
-                wait_condition = 'domcontentloaded' if not use_tor_proxy else 'load'
-                
                 if fast_mode:
-                    # FAST MODE: Go directly to search results (better for Tor and reliability)
+                    # Go directly to search results
                     print("   🚀 Fast mode: Going directly to search results...")
-                    max_retries = 3
-                    for attempt in range(max_retries):
-                        try:
-                            if use_tor_proxy:
-                                print(f"   ⏳ Loading via Tor (attempt {attempt + 1}/{max_retries}) - patience...")
-                            
-                            page.goto(search_url, wait_until=wait_condition, timeout=timeout_ms)
-                            print("   ✅ Search results loaded successfully")
-                            break
-                        except Exception as e:
-                            if attempt < max_retries - 1:
-                                wait_time = 15 + (attempt * 15)  # 15s, 30s, 45s
-                                print(f"   ⚠️ Timeout on attempt {attempt + 1}. Retrying in {wait_time}s...")
-                                time.sleep(wait_time)
-                            else:
-                                raise Exception(f"Failed to load search results after {max_retries} attempts: {e}")
-                    
+                    page.goto(search_url, wait_until='domcontentloaded', timeout=60000)
+                    time.sleep(random.uniform(3, 5))
+                else:
+                    # Human-like: Homepage first, then search
+                    page.goto("https://www.daraz.com.np", wait_until='domcontentloaded', timeout=60000)
                     time.sleep(random.uniform(2, 4))
                     
-                else:
-                    # HUMAN-LIKE MODE: Go to homepage first, then search
-                    # First, go to Amazon homepage (like a human would)
-                    max_retries = 2  # Reduced retries for homepage
-                    for attempt in range(max_retries):
-                        try:
-                            if use_tor_proxy:
-                                print(f"   ⏳ Loading homepage via Tor (attempt {attempt + 1}/{max_retries})...")
-                            
-                            page.goto("https://www.amazon.com", wait_until=wait_condition, timeout=timeout_ms)
-                            print("   ✅ Amazon homepage loaded successfully")
-                            break
-                        except Exception as e:
-                            if attempt < max_retries - 1:
-                                wait_time = 15
-                                print(f"   ⚠️ Homepage timeout on attempt {attempt + 1}. Retrying in {wait_time}s...")
-                                time.sleep(wait_time)
-                            else:
-                                print(f"   ⚠️ Homepage failed. Switching to direct search URL...")
-                                # Fallback to fast mode if homepage fails
-                                page.goto(search_url, wait_until=wait_condition, timeout=timeout_ms)
-                                print("   ✅ Loaded search results directly")
-                                time.sleep(random.uniform(3, 5))
-                                # Skip the search box interaction since we're already at results
-                                break
+                    # Type in search box
+                    search_box = page.locator('input[type="search"]').first
+                    search_box.click()
+                    time.sleep(0.5)
+                    search_box.fill(search_query)
+                    time.sleep(1)
+                    page.keyboard.press('Enter')
                     
-                    # Only do search box interaction if we successfully loaded homepage
-                    if "s?" not in page.url:  # Not already at search results
-                        time.sleep(random.uniform(2, 4))
-                    
-                    # Type in search box slowly - FIXED (removed await)
-                    try:
-                        search_box = page.locator('#twotabsearchtextbox')
-                        search_box.click(timeout=10000)
-                        time.sleep(0.5)
-                        
-                        # Type slowly, character by character - FIXED (removed await, using fill instead)
-                        search_box.fill('')  # Clear first
-                        search_box.type(search_query, delay=random.uniform(50, 150))
-                        
-                        time.sleep(1)
-                        page.keyboard.press('Enter')
-                        
-                        # Wait for results - longer for Tor
-                        wait_time = random.uniform(8, 12) if use_tor_proxy else random.uniform(5, 8)
-                        print(f"   ⏳ Waiting {wait_time:.1f}s for search results...")
-                        time.sleep(wait_time)
-                        
-                    except Exception as e:
-                        print(f"   ⚠️ Search box interaction failed: {e}")
-                        print("   Trying direct URL method...")
-                        
-                        # Fallback: Go directly to search URL
-                        page.goto(search_url, wait_until=wait_condition, timeout=timeout_ms)
-                        time.sleep(random.uniform(5, 8))
+                    # Wait for results
+                    time.sleep(random.uniform(5, 8))
                 
-                # ✅ STEP 5: SCROLL LIKE A HUMAN
-                print("   Scrolling to load content...")
-                
-                # Multiple small scrolls
-                for _ in range(3):
-                    scroll_amount = random.randint(300, 800)
+                # Scroll to load all products (important for getting all 40)
+                print("   Scrolling to load all content...")
+                for i in range(5):  # Increased scrolls to load all 40 products
+                    scroll_amount = random.randint(500, 1000)
                     page.evaluate(f"window.scrollBy(0, {scroll_amount})")
-                    time.sleep(random.uniform(1, 3))
+                    time.sleep(random.uniform(1, 2))
                 
-                # ✅ STEP 6: GET CONTENT
+                # Scroll to bottom to ensure everything is loaded
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(2)
+                
+                # Get page content
                 html = page.content()
                 
                 # Save HTML for debugging
-                with open(f"debug_{search_query.replace(' ', '_')}.html", 'w', encoding='utf-8') as f:
+                debug_filename = f"debug_daraz_{search_query.replace(' ', '_')}.html"
+                with open(debug_filename, 'w', encoding='utf-8') as f:
                     f.write(html)
-                print(f"   Saved HTML to debug_{search_query.replace(' ', '_')}.html")
+                print(f"   Saved HTML to {debug_filename}")
                 
-                # ✅ STEP 7: EXTRACT TOP 10
-                products = self.extract_top_10_products(html, search_query)
+                # Extract products
+                products = self.extract_top_products(html, search_query, max_products)
                 all_products.extend(products)
                 
                 print(f"\n   ✅ Successfully extracted {len(products)} products")
                 
-                # ✅ STEP 8: CLOSE
+                # Close browser
                 browser.close()
                 
         except Exception as e:
@@ -433,23 +371,24 @@ class ProfessionalAmazonScraper:
         
         return all_products
     
-    def save_results(self, products, filename=None):
-        """Save to CSV with ALL details"""
+    def save_results(self, products, filename=None, include_filtered=True):
+        """Save results to CSV"""
         if not products:
             print("⚠️ No products to save")
             return None
         
         if not filename:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"amazon_top10_{timestamp}.csv"
+            filename = f"daraz_products_{timestamp}.csv"
         
         # Sort by search rank
         products.sort(key=lambda x: x.get('search_rank', 99))
         
+        # Save ALL products
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
                 'search_rank', 'search_term', 'title', 'price', 'rating',
-                'review_count', 'bestseller', 'sales_volume', 'asin',
+                'review_count', 'sold_count', 'province', 'item_id',
                 'product_url', 'scraped_at'
             ]
             
@@ -461,136 +400,111 @@ class ProfessionalAmazonScraper:
         
         print(f"\n💾 Saved {len(products)} products to '{filename}'")
         
+        # Create and save FILTERED version (sold > 1 AND rating > 1)
+        if include_filtered:
+            filtered_products = self.filter_products(products, min_sold=1, min_rating=1.0)
+            
+            if filtered_products:
+                filtered_filename = filename.replace('.csv', '_filtered.csv')
+                
+                with open(filtered_filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    
+                    for product in filtered_products:
+                        writer.writerow(product)
+                
+                print(f"💾 Saved {len(filtered_products)} filtered products to '{filtered_filename}'")
+                print(f"   (Products with sold > 1 AND rating > 1)")
+        
         # Print summary
         print(f"\n{'='*60}")
-        print("📊 TOP 10 PRODUCTS SUMMARY")
+        print("📊 ALL PRODUCTS SUMMARY")
         print(f"{'='*60}")
         
-        for product in products[:10]:
+        for product in products[:10]:  # Show first 10
             rank = product['search_rank']
             print(f"\n#{rank} {product['title'][:70]}...")
-            print(f"   Price: {product['price']} | ⭐ {product['rating']}/5")
-            print(f"   Reviews: {product['review_count']} | Best Seller: {product['bestseller']}")
-            if product['sales_volume']:
-                print(f"   📈 {product['sales_volume']}")
+            print(f"   Price: {product['price']} | ⭐ {product['rating']}/5 ({product['review_count']} reviews)")
+            print(f"   Sold: {product['sold_count']} | Location: {product['province']}")
+        
+        if len(products) > 10:
+            print(f"\n... and {len(products) - 10} more products")
+        
+        # Print filtered summary
+        if include_filtered and filtered_products:
+            print(f"\n{'='*60}")
+            print("📊 FILTERED PRODUCTS SUMMARY (Sold > 1 AND Rating > 1)")
+            print(f"{'='*60}")
+            
+            for product in filtered_products[:10]:
+                rank = product['search_rank']
+                print(f"\n#{rank} {product['title'][:70]}...")
+                print(f"   Price: {product['price']} | ⭐ {product['rating']}/5 ({product['review_count']} reviews)")
+                print(f"   Sold: {product['sold_count']} | Location: {product['province']}")
+            
+            if len(filtered_products) > 10:
+                print(f"\n... and {len(filtered_products) - 10} more filtered products")
         
         return filename
     
-    def rotate_ip_tor(self):
-        """
-        Rotate IP using Tor (if installed)
-        Install Tor: https://www.torproject.org/download/
-        Then install stem: pip install stem
-        """
-        try:
-            from stem import Signal
-            from stem.control import Controller
-            
-            # Try default Tor control ports
-            ports = [9051, 9151]  # 9051 = Tor service, 9151 = Tor Browser
-            
-            for port in ports:
-                try:
-                    with Controller.from_port(port=port) as controller:
-                        controller.authenticate(password='')  # Default: no password
-                        controller.signal(Signal.NEWNYM)
-                        print(f"🔄 IP rotated via Tor (port {port})")
-                        time.sleep(5)  # Wait for new circuit
-                        return True
-                except Exception as port_error:
-                    continue
-            
-            # If both ports failed
-            raise Exception("Could not connect to Tor on ports 9051 or 9151")
-            
-        except Exception as e:
-            print(f"⚠️ Tor rotation failed: {e}")
-            print("\n📋 SOLUTION:")
-            print("   Option 1: Use Tor Browser's SOCKS proxy (EASIER)")
-            print("   Option 2: Install standalone Tor service")
-            print("\n   For Option 1, I'll configure the browser to use Tor Browser's proxy...")
-            return False
-    
-    def rotate_ip_vpn(self):
-        """
-        Placeholder for VPN IP rotation
-        You can integrate with your VPN provider's API here
-        """
-        print("🔄 VPN IP rotation (implement your VPN API)")
-        # Example: call your VPN provider's API to change server
-        # subprocess.run(['nordvpn', 'connect'])
-        time.sleep(10)
-        return True
-    
-    def run_professional_scrape(self, use_ip_rotation=False, rotation_method='tor'):
-        """Main execution - Professional grade with IP rotation"""
-        # Check if using Tor Browser proxy (define early)
-        use_tor_proxy = (use_ip_rotation and rotation_method == 'tor')
-        
-        print("🚀 PROFESSIONAL AMAZON SCRAPER 2024")
+    def run_scrape(self, search_terms=None, max_products=40):
+        """Main execution"""
+        print("🚀 DARAZ SCRAPER 2026")
         print("="*60)
         print("Features:")
-        print("✅ 2024 Amazon selectors")
-        print("✅ Top 10 products in order")
-        print("✅ Anti-detection stealth")
-        print(f"✅ IP rotation: {'ENABLED' if use_ip_rotation else 'DISABLED'}")
-        print("✅ Fast mode: Direct to search (more reliable)")
-        print("✅ Smart retry logic")
+        print("✅ Daraz Nepal selectors")
+        print("✅ Product link, title, price, sold count, rating, province")
+        print(f"✅ Max products per search: {max_products} (full page)")
+        print("✅ Auto-filtering for: sold > 1 AND rating > 1")
         print("="*60)
         
-        # Your search terms
-        searches = [
-            "samsung mobile phones",
-            "samsung headphones",
-            "lg headphones"
-        ]
+        # Default search terms if none provided
+        if not search_terms:
+            search_terms = [
+                "samsung smart tv",
+                "lg smart tv",
+                "himstar smart tv"
+            ]
         
         all_products = []
         
-        for i, search in enumerate(searches):
+        for i, search in enumerate(search_terms):
             print(f"\n{'#'*60}")
-            print(f"SEARCHING: '{search}' ({i+1}/{len(searches)})")
+            print(f"SEARCHING: '{search}' ({i+1}/{len(search_terms)})")
             print(f"{'#'*60}")
-            
-            # Rotate IP before each search (except first)
-            if use_ip_rotation and i > 0:
-                print("\n🔄 Rotating IP address...")
-                if rotation_method == 'tor':
-                    success = self.rotate_ip_tor()
-                    if not success:
-                        print("   ℹ️ Continuing with Tor Browser proxy (no rotation)")
-                elif rotation_method == 'vpn':
-                    self.rotate_ip_vpn()
-                else:
-                    print("⚠️ Unknown rotation method. Skipping.")
             
             products = self.scrape_with_stealth(
                 search, 
-                max_pages=1, 
-                use_tor_proxy=use_tor_proxy,
-                fast_mode=True  # Always use fast mode - more reliable
+                max_products=max_products,
+                fast_mode=True
             )
             all_products.extend(products)
             
             print(f"Total products collected: {len(all_products)}")
             
             # Wait between searches
-            if search != searches[-1]:
-                wait_time = random.uniform(30, 60)
+            if search != search_terms[-1]:
+                wait_time = random.uniform(10, 20)
                 print(f"\n⏸️ Waiting {wait_time:.1f}s before next search...")
                 time.sleep(wait_time)
         
         # Save results
         if all_products:
-            filename = self.save_results(all_products)
+            filename = self.save_results(all_products, include_filtered=True)
             
             print(f"\n{'='*60}")
-            print("✅ MISSION ACCOMPLISHED!")
+            print("✅ SCRAPING COMPLETE!")
             print(f"{'='*60}")
-            print(f"📊 Total products: {len(all_products)}")
-            print(f"💾 File: {filename}")
-            if use_ip_rotation:
-                print("   - IP rotation enabled")
+            print(f"📊 Total products scraped: {len(all_products)}")
+            
+            # Calculate filtered count
+            filtered = self.filter_products(all_products, min_sold=1, min_rating=1.0)
+            print(f"📊 Filtered products (sold > 1 & rating > 1): {len(filtered)}")
+            
+            print(f"\n💾 Files created:")
+            print(f"   - {filename} (all products)")
+            print(f"   - {filename.replace('.csv', '_filtered.csv')} (filtered)")
             
             return filename
         else:
@@ -609,68 +523,37 @@ if __name__ == "__main__":
         print("Then: python -m playwright install chromium")
         sys.exit(1)
     
-    # Run the professional scraper
-    scraper = ProfessionalAmazonScraper()
+    # Run the scraper
+    scraper = DarazScraper()
     
     try:
         print("\n⚠️ IMPORTANT: Browser will open (visible).")
-        print("   Watch what Amazon shows. If CAPTCHA appears, solve it.")
+        print("   Watch for any issues or CAPTCHAs.")
         
-        # IP ROTATION OPTIONS:
-        print("\n🔄 IP ROTATION:")
-        print("   1. No rotation (default) - FASTEST")
-        print("   2. Tor rotation via Tor Browser - SLOW but anonymous")
-        print("   3. VPN rotation (implement your VPN)")
-        print("\n   ⚠️ NOTE: Tor is VERY SLOW (2-3 min per search)")
-        print("            Use option 1 for testing, option 2 for anonymity")
+        # Customize your search terms here
+        custom_searches = [
+            "samsung smart tv",
+            "lg smart tv", 
+            "himstar smart tv"
+        ]
         
-        choice = input("\nSelect option (1/2/3) [default: 1]: ").strip() or "1"
+        print(f"\n📋 Will search for: {', '.join(custom_searches)}")
+        print(f"   Products per search: 40 (full page)")
+        print(f"   Filtering: sold > 1 AND rating > 1")
         
-        use_rotation = False
-        rotation_method = 'tor'
+        confirm = input("\nPress ENTER to start (or Ctrl+C to cancel)...")
         
-        if choice == '2':
-            use_rotation = True
-            rotation_method = 'tor'
-            print("\n✅ Using Tor Browser proxy")
-            print("📌 IMPORTANT: Keep your Tor Browser OPEN while scraping!")
-            print("   The scraper will route traffic through Tor Browser's proxy.")
-            print("\n⏰ EXPECT SLOW SPEEDS:")
-            print("   - Each page load: 1-3 minutes")
-            print("   - Total time for 3 searches: 10-20 minutes")
-            print("   - Many timeouts are normal with Tor")
-            
-            confirm = input("\nContinue with Tor? (y/n) [y]: ").strip().lower() or "y"
-            if confirm != 'y':
-                print("✅ Switching to no rotation (faster)")
-                use_rotation = False
-                rotation_method = None
-            else:
-                input("\nPress ENTER when Tor Browser is connected and ready...")
-        elif choice == '3':
-            use_rotation = True
-            rotation_method = 'vpn'
-            print("✅ Using VPN rotation (you need to implement VPN API)")
-        else:
-            print("✅ No IP rotation (fastest option)")
-        
-        print("\nStarting in 5 seconds...")
-        time.sleep(5)
-        
-        results_file = scraper.run_professional_scrape(
-            use_ip_rotation=use_rotation,
-            rotation_method=rotation_method
+        results_file = scraper.run_scrape(
+            search_terms=custom_searches,
+            max_products=40  # Changed from 10 to 40
         )
         
         if results_file:
-            print(f"\n🎉 Open '{results_file}' in Excel/Google Sheets")
-            print("   Columns: Rank, Title, Price, Rating, Reviews, URL, etc.")
-            
-            if use_rotation and rotation_method == 'tor':
-                print("\n💡 TIP: For faster scraping in production:")
-                print("   - Use residential proxy services (BrightData, Smartproxy, Oxylabs)")
-                print("   - Or add delays between requests without Tor")
-                print("   - Tor is best for maximum anonymity, not speed")
+            print(f"\n🎉 Open the CSV files in Excel/Google Sheets")
+            print("   Columns: Rank, Title, Price, Rating, Reviews, Sold, Province, URL")
+            print(f"\n💡 TIP: Use the '_filtered.csv' file for products with:")
+            print("   - More than 1 item sold")
+            print("   - Rating higher than 1.0")
         
     except KeyboardInterrupt:
         print("\n\n⏹️ Stopped by user")
