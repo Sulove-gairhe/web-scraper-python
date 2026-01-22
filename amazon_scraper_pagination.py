@@ -19,36 +19,36 @@ class DarazScraper:
                 'div.Bm3ON'
             ],
             
-            # Title 
+            # Title - in the <a> tag inside div.RfADt
             'title': [
                 'div.RfADt a',
                 'a[title]'
             ],
             
-            # Price 
+            # Price - inside div.aBrP0 > span.ooOxS
             'price': [
                 'div.aBrP0 span.ooOxS',
                 'span.ooOxS'
             ],
             
-            # Number sold 
+            # Number sold - inside span._1cEkb > span (first child)
             'sold_count': [
                 'span._1cEkb span',
                 'span._1cEkb'
             ],
             
-            # Rating stars 
+            # Rating stars - div.mdmmT._32vUv contains star icons
             'rating_container': [
                 'div.mdmmT._32vUv',
                 'div.mdmmT'
             ],
             
-            # Review count 
+            # Review count - span.qzqFw with number in parentheses
             'review_count': [
                 'span.qzqFw'
             ],
             
-            # Province/Location -
+            # Province/Location - span.oa6ri
             'province': [
                 'span.oa6ri'
             ],
@@ -158,7 +158,7 @@ class DarazScraper:
         if rating_container:
             # Count filled stars (class contains 'Dy1nx') vs half/empty stars
             filled_stars = len(rating_container.select('i._9-ogB.Dy1nx'))
-            half_stars = len(rating_container.select('i._9-ogB.JhD\\+v')) 
+            half_stars = len(rating_container.select('i._9-ogB.JhD\\+v'))  # Escape the + in class name
             
             # Calculate rating
             rating_value = filled_stars + (0.5 if half_stars > 0 else 0)
@@ -274,7 +274,7 @@ class DarazScraper:
                 ]
                 
                 browser = p.chromium.launch(
-                    headless=False, 
+                    headless=False,  # Set to True for production
                     args=launch_args
                 )
                 
@@ -283,7 +283,7 @@ class DarazScraper:
                     viewport={'width': 1920, 'height': 1080},
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     locale='en-US',
-                    timezone_id='Asia/Kathmandu', 
+                    timezone_id='Asia/Kathmandu',  # Nepal timezone
                     color_scheme='light',
                 )
                 
@@ -348,12 +348,6 @@ class DarazScraper:
                 
                 # Get page content
                 html = page.content()
-                
-                # Save HTML for debugging
-                debug_filename = f"debug_daraz_{search_query.replace(' ', '_')}.html"
-                with open(debug_filename, 'w', encoding='utf-8') as f:
-                    f.write(html)
-                print(f"   Saved HTML to {debug_filename}")
                 
                 # Extract products
                 products = self.extract_top_products(html, search_query, max_products)
@@ -450,13 +444,14 @@ class DarazScraper:
     
     def run_scrape(self, search_terms=None, max_products=40):
         """Main execution"""
-        print("🚀 DARAZ SCRAPER 2026")
+        print("🚀 DARAZ SCRAPER 2024 - FULL PAGE MODE")
         print("="*60)
         print("Features:")
         print("✅ Daraz Nepal selectors")
         print("✅ Product link, title, price, sold count, rating, province")
+        print("✅ Anti-detection stealth")
         print(f"✅ Max products per search: {max_products} (full page)")
-        print("✅ Auto-filtering for: sold > 1 AND rating > 1")
+        print("✅ Auto-filtering: sold > 1 AND rating > 1")
         print("="*60)
         
         # Default search terms if none provided
