@@ -129,7 +129,7 @@ Within the recommended limit, this scraper provides **consistent and accurate re
 | `sold_count` | Units sold | "55" |
 | `province` | Seller location | "Gandaki Province" |
 | `item_id` | Daraz product ID | "127997331" |
-| `product_url` | Direct product link | "https://www.xyz.com/..." |
+| `product_url` | Direct product link | "https://www.daraz.com/product_url..." |
 | `scraped_at` | Timestamp | "2025-01-22 14:30:15" |
 
 ### Filtered Dataset Criteria
